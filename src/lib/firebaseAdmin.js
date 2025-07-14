@@ -17,28 +17,4 @@ if (!admin.apps.length) {
   });
 }
 
-export default async function handler(req, res) {
-  if (req.method !== "GET") {
-    return res.status(405).json({ error: "Método no permitido" });
-  }
-
-  try {
-    const message = {
-      notification: {
-        title: "🕐 Notificación programada",
-        body: "Esto es una notificación enviada cada minuto.",
-      },
-      topic: "general",
-    };
-
-    const response = await admin.messaging().send(message);
-
-    res.status(200).json({
-      message: "Notificación enviada correctamente",
-      response,
-    });
-  } catch (error) {
-    console.error("❌ Error enviando notificación programada:", error);
-    res.status(500).json({ error: error.message });
-  }
-}
+export default admin;
