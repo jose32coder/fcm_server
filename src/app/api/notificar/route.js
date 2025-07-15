@@ -8,7 +8,7 @@ export async function POST(request) {
   // 📌 Verificar token de autorización
   const token = request.headers.get("authorization");
 
-  if (!token || token !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!token || token !== `Bearer ${process.env.SECRET_TOKEN}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
