@@ -5,12 +5,11 @@ import { NextResponse } from "next/server";
 const db = admin.firestore();
 
 export async function POST(request) {
-  // 📌 Verificar token de autorización
   const SECRET_TOKEN = process.env.SECRET_TOKEN;
-
   const authHeader = request.headers.get("authorization");
+
   if (!authHeader || authHeader !== `Bearer ${SECRET_TOKEN}`) {
-    return false;
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
@@ -23,7 +22,6 @@ export async function POST(request) {
       );
     }
 
-    // 📌 Buscar gimnasio por código
     const gimnasioSnapshot = await db
       .collection("gimnasios")
       .where("codigo", "==", codigoGimnasio)
@@ -38,7 +36,6 @@ export async function POST(request) {
 
     const gimnasioId = gimnasioSnapshot.docs[0].id;
 
-    // 📌 Obtener usuarios del gimnasio
     const usuariosSnapshot = await db
       .collection("gimnasios")
       .doc(gimnasioId)
@@ -53,7 +50,6 @@ export async function POST(request) {
       const userRef = doc.ref;
 
       const fechaCorte = user.fechaCorte?.toDate?.();
-
       if (!fechaCorte) continue;
 
       const diferenciaDias = Math.floor(
@@ -95,7 +91,6 @@ export async function POST(request) {
   }
 }
 
-// Opcionalmente puedes manejar otros métodos para que no de 405 sin explicación
 export function GET() {
   return NextResponse.json({ error: "Método no permitido" }, { status: 405 });
 }
