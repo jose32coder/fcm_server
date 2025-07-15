@@ -1,65 +1,86 @@
-import { NextResponse } from "next/server";
 import admin from "@/lib/firebaseAdmin";
 import { notificarAdministradoresYGimnasio } from "@/lib/notificaciones";
 
-const SECRET_TOKEN = process.env.SECRET_TOKEN;
-
-async function validarAutorizacion(request) {
-  const authHeader = request.headers.get("authorization");
-  if (!authHeader || authHeader !== `Bearer ${SECRET_TOKEN}`) {
-    return false;
-  }
-  return true;
-}
-
-export async function GET(request) {
-  if (!(await validarAutorizacion(request))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  try {
-    const message = {
-      notification: {
-        title: "Notificación de prueba",
-        body: "Este es un mensaje de prueba enviado desde localhost.",
-      },
-      topic: "general",
-    };
-
-    const response = await admin.messaging().send(message);
-    return NextResponse.json({ message: "Notificación enviada", response });
-  } catch (error) {
-    console.error("❌ Error en GET:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-}
+const db = admin.firestore();
 
 export async function POST(request) {
-  if (!(await validarAutorizacion(request))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   try {
-    const body = await request.json();
-    const { gimnasioId, usuarioData, usuarioId, nuevoEstado } = body;
+    const { codigoGimnasio } = await request.json();
 
-    if (!gimnasioId || !usuarioId || !nuevoEstado) {
+    if (!codigoGimnasio) {
       return NextResponse.json(
-        { error: "Faltan datos obligatorios" },
+        { error: "Falta codigoGimnasio" },
         { status: 400 }
       );
     }
 
-    await notificarAdministradoresYGimnasio(
-      gimnasioId,
-      usuarioData,
-      usuarioId,
-      nuevoEstado
-    );
+    const gimnasioSnapshot = await db
+      .collection("gimnasios")
+      .where("codigo", "==", codigoGimnasio)
+      .get();
 
-    return NextResponse.json({ message: "Notificación enviada correctamente" });
+    if (gimnasioSnapshot.empty) {
+      return NextResponse.json(
+        { error: "No existe gimnasio con ese código" },
+        { status: 404 }
+      );
+    }
+
+    const gimnasioId = gimnasioSnapshot.docs[0].id;
+
+    const usuariosSnapshot = await db
+      .collection("gimnasios")
+      .doc(gimnasioId)
+      .collection("usuarios")
+      .get();
+
+    const ahora = new Date();
+
+    const batch = db.batch();
+
+    for (const doc of usuariosSnapshot.docs) {
+      const user = doc.data();
+      const userRef = doc.ref;
+
+      const fechaCorte = user.fechaCorte?.toDate?.();
+
+      if (!fechaCorte) continue;
+
+      const diferenciaDias = Math.floor(
+        (fechaCorte - ahora) / (1000 * 60 * 60 * 24)
+      );
+
+      let nuevoEstado = user.estado;
+
+      if (
+        diferenciaDias <= 5 &&
+        diferenciaDias > 0 &&
+        user.estado === "activo"
+      ) {
+        nuevoEstado = "pendiente";
+      } else if (diferenciaDias <= 0 && user.estado !== "inactivo") {
+        nuevoEstado = "inactivo";
+      }
+
+      if (nuevoEstado !== user.estado) {
+        batch.update(userRef, { estado: nuevoEstado });
+
+        await notificarAdministradoresYGimnasio(
+          gimnasioId,
+          user,
+          doc.id,
+          nuevoEstado
+        );
+      }
+    }
+
+    await batch.commit();
+
+    return NextResponse.json({
+      message: "Estados actualizados y notificaciones enviadas.",
+    });
   } catch (error) {
-    console.error("❌ Error en POST:", error);
+    console.error("❌ Error en cron job:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
