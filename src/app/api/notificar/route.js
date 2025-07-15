@@ -1,5 +1,4 @@
 import admin from "@/lib/firebaseAdmin";
-import { notificarAdministradoresYGimnasio } from "@/lib/notificaciones";
 import { NextResponse } from "next/server";
 
 const db = admin.firestore();
@@ -13,95 +12,102 @@ export async function POST(request) {
   }
 
   try {
-    const { codigoGimnasio } = await request.json();
+    const gimnasiosSnapshot = await db.collection("gimnasios").get();
 
-    if (!codigoGimnasio) {
-      return NextResponse.json(
-        { error: "Falta codigoGimnasio" },
-        { status: 400 }
-      );
-    }
+    for (const gimnasioDoc of gimnasiosSnapshot.docs) {
+      const gimnasioId = gimnasioDoc.id;
+      const usuariosSnapshot = await db
+        .collection("gimnasios")
+        .doc(gimnasioId)
+        .collection("usuarios")
+        .get();
 
-    const gimnasioSnapshot = await db
-      .collection("gimnasios")
-      .where("codigo", "==", codigoGimnasio)
-      .get();
+      const ahora = new Date();
+      const batch = db.batch();
 
-    if (gimnasioSnapshot.empty) {
-      return NextResponse.json(
-        { error: "No existe gimnasio con ese código" },
-        { status: 404 }
-      );
-    }
+      let cambiosEstado = 0;
 
-    const gimnasioId = gimnasioSnapshot.docs[0].id;
+      for (const usuarioDoc of usuariosSnapshot.docs) {
+        const user = usuarioDoc.data();
+        const userRef = usuarioDoc.ref;
 
-    const usuariosSnapshot = await db
-      .collection("gimnasios")
-      .doc(gimnasioId)
-      .collection("usuarios")
-      .get();
+        const fechaCorte = user.fechaCorte?.toDate?.();
+        if (!fechaCorte) continue;
 
-    const ahora = new Date();
-    const batch = db.batch();
-
-    // Aquí se acumulan las promesas para enviar notificaciones
-    const promesasNotificaciones = [];
-
-    for (const doc of usuariosSnapshot.docs) {
-      const user = doc.data();
-      const userRef = doc.ref;
-
-      const fechaCorte = user.fechaCorte?.toDate?.();
-      if (!fechaCorte) continue;
-
-      const diferenciaDias = Math.floor(
-        (fechaCorte - ahora) / (1000 * 60 * 60 * 24)
-      );
-
-      let nuevoEstado = user.estado;
-
-      if (
-        diferenciaDias <= 5 &&
-        diferenciaDias > 0 &&
-        user.estado === "activo"
-      ) {
-        nuevoEstado = "pendiente";
-      } else if (diferenciaDias <= 0 && user.estado !== "inactivo") {
-        nuevoEstado = "inactivo";
-      }
-
-      if (nuevoEstado !== user.estado) {
-        batch.update(userRef, { estado: nuevoEstado });
-
-        // Se añade la promesa a la lista sin await aquí
-        promesasNotificaciones.push(
-          notificarAdministradoresYGimnasio(
-            gimnasioId,
-            user,
-            doc.id,
-            nuevoEstado
-          ).catch((err) => {
-            console.error(`Error notificando usuario ${doc.id}:`, err);
-          })
+        const diferenciaDias = Math.floor(
+          (fechaCorte - ahora) / (1000 * 60 * 60 * 24)
         );
+
+        let nuevoEstado = user.estado;
+
+        if (
+          diferenciaDias <= 5 &&
+          diferenciaDias > 0 &&
+          user.estado === "activo"
+        ) {
+          nuevoEstado = "pendiente";
+        } else if (diferenciaDias <= 0 && user.estado !== "inactivo") {
+          nuevoEstado = "inactivo";
+        }
+
+        if (nuevoEstado !== user.estado) {
+          batch.update(userRef, { estado: nuevoEstado });
+          cambiosEstado++;
+        }
+      }
+
+      await batch.commit();
+
+      if (cambiosEstado > 0) {
+        const mensaje = `${cambiosEstado} usuario${
+          cambiosEstado > 1 ? "s" : ""
+        } cambiaron de estado en tu gimnasio. Pulsa para revisar.`;
+        await notificarAdministradoresYGimnasioResumen(gimnasioId, mensaje);
       }
     }
 
-    await batch.commit();
-
-    // Se esperan todas las notificaciones, pero no falla si una falla
-    await Promise.allSettled(promesasNotificaciones);
-
-    return NextResponse.json({
-      message: "Estados actualizados y notificaciones enviadas.",
-    });
+    return NextResponse.json({ message: "Proceso finalizado correctamente" });
   } catch (error) {
-    console.error("❌ Error en cron job:", error);
+    console.error("Error en notificación:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
-export function GET() {
-  return NextResponse.json({ error: "Método no permitido" }, { status: 405 });
+// Función para enviar notificación resumen a administradores
+async function notificarAdministradoresYGimnasioResumen(gimnasioId, mensaje) {
+  const adminsSnapshot = await db
+    .collection("gimnasios")
+    .doc(gimnasioId)
+    .collection("usuarios")
+    .where("tipo", "in", ["Administrador", "Dueño"])
+    .get();
+
+  if (adminsSnapshot.empty) return;
+
+  const tokens = adminsSnapshot.docs
+    .map((doc) => doc.data().token)
+    .filter((token) => typeof token === "string" && token.length > 10);
+
+  if (tokens.length === 0) return;
+
+  const payloadNotification = {
+    title: `Actualización de estados en gimnasio`,
+    body: mensaje,
+    sound: "default",
+  };
+
+  const payloadData = {
+    gimnasioId,
+    tipoNotificacion: "resumenEstados",
+  };
+
+  const response = await admin.messaging().sendMulticast({
+    tokens,
+    notification: payloadNotification,
+    data: payloadData,
+  });
+
+  console.log(
+    `Notificación resumen enviada: ${response.successCount} éxitos, ${response.failureCount} fallos.`
+  );
 }

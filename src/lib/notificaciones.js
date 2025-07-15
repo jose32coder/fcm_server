@@ -2,11 +2,9 @@ import admin from "@/lib/firebaseAdmin";
 
 const db = admin.firestore();
 
-export async function notificarAdministradoresYGimnasio(
+export async function notificarAdministradoresYGimnasioResumen(
   gimnasioId,
-  usuarioData,
-  usuarioId,
-  nuevoEstado
+  mensaje
 ) {
   try {
     const adminsSnapshot = await db
@@ -17,32 +15,36 @@ export async function notificarAdministradoresYGimnasio(
       .get();
 
     if (adminsSnapshot.empty) {
-      console.log(`ℹ️ No hay administradores/dueños para el gimnasio ${gimnasioId}`);
+      console.log(
+        `ℹ️ No hay administradores/dueños para el gimnasio ${gimnasioId}`
+      );
       return;
     }
 
     const adminsConToken = adminsSnapshot.docs
       .map((doc) => ({ id: doc.id, token: doc.data().token }))
-      .filter((admin) => typeof admin.token === "string" && admin.token.length > 10);
+      .filter(
+        (admin) => typeof admin.token === "string" && admin.token.length > 10
+      );
 
     if (adminsConToken.length === 0) {
-      console.log(`ℹ️ No hay administradores/dueños con token registrado para notificar.`);
+      console.log(
+        `ℹ️ No hay administradores/dueños con token registrado para notificar.`
+      );
       return;
     }
 
     const tokens = adminsConToken.map((a) => a.token);
 
     const payloadNotification = {
-      title: `Cambio de estado usuario ${usuarioId}`,
-      body: `El usuario ha cambiado a estado ${nuevoEstado}`,
+      title: `Actualización de estados en gimnasio`,
+      body: mensaje,
       sound: "default",
     };
 
     const payloadData = {
       gimnasioId,
-      usuarioId,
-      nuevoEstado,
-      tipoNotificacion: "estadoUsuario",
+      tipoNotificacion: "resumenEstados",
     };
 
     const response = await admin.messaging().sendMulticast({
@@ -52,14 +54,14 @@ export async function notificarAdministradoresYGimnasio(
     });
 
     console.log(
-      `📲 Notificaciones enviadas: ${response.successCount} exitosas, ${response.failureCount} fallidas.`
+      `📲 Notificación resumen enviada: ${response.successCount} éxitos, ${response.failureCount} fallos.`
     );
 
     const notificacionData = {
       titulo: payloadNotification.title,
       mensaje: payloadNotification.body,
       fechaEnvio: admin.firestore.FieldValue.serverTimestamp(),
-      tipo: "estadoUsuario",
+      tipo: "resumenEstados",
       tokensDestino: tokens,
       exitosos: response.successCount,
       fallidos: response.failureCount,
@@ -70,12 +72,14 @@ export async function notificarAdministradoresYGimnasio(
       })),
     };
 
+    // Guardar la notificación resumen en la colección principal
     await db
       .collection("gimnasios")
       .doc(gimnasioId)
       .collection("notificaciones")
       .add(notificacionData);
 
+    // Guardar la notificación en las subcolecciones de los admins
     const batch = db.batch();
 
     adminsConToken.forEach((adminUser) => {
@@ -95,9 +99,14 @@ export async function notificarAdministradoresYGimnasio(
 
     await batch.commit();
 
-    console.log(`📝 Notificación registrada en subcolecciones de administradores/dueños`);
+    console.log(
+      `📝 Notificación resumen registrada en subcolecciones de administradores/dueños`
+    );
   } catch (error) {
-    console.error(`❌ Error notificando administradores/gimnasio:`, error);
+    console.error(
+      `❌ Error notificando resumen a administradores/gimnasio:`,
+      error
+    );
     throw error;
   }
 }
