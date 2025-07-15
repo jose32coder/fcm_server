@@ -6,10 +6,11 @@ const db = admin.firestore();
 
 export async function POST(request) {
   // 📌 Verificar token de autorización
-  const token = request.headers.get("authorization");
+  const SECRET_TOKEN = process.env.SECRET_TOKEN;
 
-  if (!token || token !== `Bearer ${process.env.SECRET_TOKEN}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const authHeader = request.headers.get("authorization");
+  if (!authHeader || authHeader !== `Bearer ${SECRET_TOKEN}`) {
+    return false;
   }
 
   try {
