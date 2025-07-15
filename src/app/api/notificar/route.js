@@ -45,6 +45,9 @@ export async function POST(request) {
     const ahora = new Date();
     const batch = db.batch();
 
+    // Aquí se acumulan las promesas para enviar notificaciones
+    const promesasNotificaciones = [];
+
     for (const doc of usuariosSnapshot.docs) {
       const user = doc.data();
       const userRef = doc.ref;
@@ -71,16 +74,24 @@ export async function POST(request) {
       if (nuevoEstado !== user.estado) {
         batch.update(userRef, { estado: nuevoEstado });
 
-        await notificarAdministradoresYGimnasio(
-          gimnasioId,
-          user,
-          doc.id,
-          nuevoEstado
+        // Se añade la promesa a la lista sin await aquí
+        promesasNotificaciones.push(
+          notificarAdministradoresYGimnasio(
+            gimnasioId,
+            user,
+            doc.id,
+            nuevoEstado
+          ).catch((err) => {
+            console.error(`Error notificando usuario ${doc.id}:`, err);
+          })
         );
       }
     }
 
     await batch.commit();
+
+    // Se esperan todas las notificaciones, pero no falla si una falla
+    await Promise.allSettled(promesasNotificaciones);
 
     return NextResponse.json({
       message: "Estados actualizados y notificaciones enviadas.",

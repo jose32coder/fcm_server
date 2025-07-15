@@ -9,7 +9,6 @@ export async function notificarAdministradoresYGimnasio(
   nuevoEstado
 ) {
   try {
-    // Obtener administradores y dueños del gimnasio
     const adminsSnapshot = await db
       .collection("gimnasios")
       .doc(gimnasioId)
@@ -18,34 +17,21 @@ export async function notificarAdministradoresYGimnasio(
       .get();
 
     if (adminsSnapshot.empty) {
-      console.log(
-        `ℹ️ No hay administradores/dueños para el gimnasio ${gimnasioId}`
-      );
+      console.log(`ℹ️ No hay administradores/dueños para el gimnasio ${gimnasioId}`);
       return;
     }
 
-    // Filtrar administradores con token válido
     const adminsConToken = adminsSnapshot.docs
       .map((doc) => ({ id: doc.id, token: doc.data().token }))
-      .filter(
-        (admin) => typeof admin.token === "string" && admin.token.length > 10
-      );
+      .filter((admin) => typeof admin.token === "string" && admin.token.length > 10);
 
     if (adminsConToken.length === 0) {
-      console.log(
-        `ℹ️ No hay administradores/dueños con token registrado para notificar.`
-      );
+      console.log(`ℹ️ No hay administradores/dueños con token registrado para notificar.`);
       return;
     }
 
     const tokens = adminsConToken.map((a) => a.token);
 
-    if (tokens.length === 0) {
-      console.log("⚠️ No hay tokens válidos para enviar notificación.");
-      return;
-    }
-
-    // Construir payload de notificación
     const payloadNotification = {
       title: `Cambio de estado usuario ${usuarioId}`,
       body: `El usuario ha cambiado a estado ${nuevoEstado}`,
@@ -59,7 +45,6 @@ export async function notificarAdministradoresYGimnasio(
       tipoNotificacion: "estadoUsuario",
     };
 
-    // Enviar notificación
     const response = await admin.messaging().sendMulticast({
       tokens,
       notification: payloadNotification,
@@ -70,7 +55,6 @@ export async function notificarAdministradoresYGimnasio(
       `📲 Notificaciones enviadas: ${response.successCount} exitosas, ${response.failureCount} fallidas.`
     );
 
-    // Construir registro de notificación para Firestore
     const notificacionData = {
       titulo: payloadNotification.title,
       mensaje: payloadNotification.body,
@@ -86,14 +70,12 @@ export async function notificarAdministradoresYGimnasio(
       })),
     };
 
-    // Guardar notificación en colección general del gimnasio
     await db
       .collection("gimnasios")
       .doc(gimnasioId)
       .collection("notificaciones")
       .add(notificacionData);
 
-    // Guardar copia en subcolección de cada administrador/dueño
     const batch = db.batch();
 
     adminsConToken.forEach((adminUser) => {
@@ -113,11 +95,9 @@ export async function notificarAdministradoresYGimnasio(
 
     await batch.commit();
 
-    console.log(
-      `📝 Notificación registrada en subcolecciones de administradores/dueños`
-    );
+    console.log(`📝 Notificación registrada en subcolecciones de administradores/dueños`);
   } catch (error) {
     console.error(`❌ Error notificando administradores/gimnasio:`, error);
-    throw error; // Propaga el error para poder capturarlo en el endpoint que llama a esta función
+    throw error;
   }
 }
