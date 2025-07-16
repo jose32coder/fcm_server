@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import admin from "../../../../firebaseAdmin";
-import { notificarAdministradoresYGimnasio } from "@/lib/notificaciones";
+import { notificarAdministradoresYGimnasioResumen } from "@/lib/notificaciones";
 
 const SECRET_TOKEN = process.env.SECRET_TOKEN;
 
@@ -53,7 +53,7 @@ export async function POST(request) {
       );
     }
 
-    await notificarAdministradoresYGimnasio(
+    await notificarAdministradoresYGimnasioResumen(
       gimnasioId,
       usuarioData,
       usuarioId,
