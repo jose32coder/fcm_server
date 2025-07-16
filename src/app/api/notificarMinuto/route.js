@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import admin from "@/lib/firebaseAdmin";
+import admin from "../../../../firebaseAdmin";
 import { notificarAdministradoresYGimnasio } from "@/lib/notificaciones";
 
 const SECRET_TOKEN = process.env.SECRET_TOKEN;

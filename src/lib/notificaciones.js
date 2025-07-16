@@ -1,6 +1,8 @@
-import admin from "@/lib/firebaseAdmin";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getMessaging } from "firebase-admin/messaging";
 
-const db = admin.firestore();
+const db = getFirestore();
+const messaging = getMessaging();
 
 export async function notificarAdministradoresYGimnasioResumen(
   gimnasioId,
@@ -47,7 +49,7 @@ export async function notificarAdministradoresYGimnasioResumen(
       tipoNotificacion: "resumenEstados",
     };
 
-    const response = await admin.messaging().sendMulticast({
+    const response = await messaging.sendMulticast({
       tokens,
       notification: payloadNotification,
       data: payloadData,
@@ -60,7 +62,7 @@ export async function notificarAdministradoresYGimnasioResumen(
     const notificacionData = {
       titulo: payloadNotification.title,
       mensaje: payloadNotification.body,
-      fechaEnvio: admin.firestore.FieldValue.serverTimestamp(),
+      fechaEnvio: FieldValue.serverTimestamp(),
       tipo: "resumenEstados",
       tokensDestino: tokens,
       exitosos: response.successCount,
@@ -93,7 +95,7 @@ export async function notificarAdministradoresYGimnasioResumen(
 
       batch.set(userNotificacionRef, {
         ...notificacionData,
-        fechaEnvio: admin.firestore.FieldValue.serverTimestamp(),
+        fechaEnvio: FieldValue.serverTimestamp(),
       });
     });
 

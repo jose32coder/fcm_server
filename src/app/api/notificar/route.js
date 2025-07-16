@@ -1,7 +1,8 @@
-import admin from "@/lib/firebaseAdmin";
+import admin from "../../../../firebaseAdmin";
 import { NextResponse } from "next/server";
 
 const db = admin.firestore();
+const messaging = admin.messaging();
 
 export async function POST(request) {
   const SECRET_TOKEN = process.env.SECRET_TOKEN;
@@ -24,7 +25,6 @@ export async function POST(request) {
 
       const ahora = new Date();
       const batch = db.batch();
-
       let cambiosEstado = 0;
 
       for (const usuarioDoc of usuariosSnapshot.docs) {
@@ -34,19 +34,18 @@ export async function POST(request) {
         const fechaCorte = user.fechaCorte?.toDate?.();
         if (!fechaCorte) continue;
 
-        const diferenciaDias = Math.floor(
-          (fechaCorte - ahora) / (1000 * 60 * 60 * 24)
-        );
-
         let nuevoEstado = user.estado;
 
+        // Compara directamente los timestamps en lugar de días
+        const tiempoRestante = fechaCorte - ahora;
+
         if (
-          diferenciaDias <= 5 &&
-          diferenciaDias > 0 &&
+          tiempoRestante > 0 &&
+          tiempoRestante <= 5 * 24 * 60 * 60 * 1000 && // dentro de 5 días
           user.estado === "activo"
         ) {
           nuevoEstado = "pendiente";
-        } else if (diferenciaDias <= 0 && user.estado !== "inactivo") {
+        } else if (fechaCorte <= ahora && user.estado !== "inactivo") {
           nuevoEstado = "inactivo";
         }
 
@@ -59,9 +58,11 @@ export async function POST(request) {
       await batch.commit();
 
       if (cambiosEstado > 0) {
-        const mensaje = `${cambiosEstado} usuario${
-          cambiosEstado > 1 ? "s" : ""
-        } cambiaron de estado en tu gimnasio. Pulsa para revisar.`;
+        const mensaje =
+          cambiosEstado === 1
+            ? `Un usuario cambió de estado en tu gimnasio. Pulsa para revisar.`
+            : `${cambiosEstado} usuarios cambiaron de estado en tu gimnasio. Pulsa para revisar.`;
+
         await notificarAdministradoresYGimnasioResumen(gimnasioId, mensaje);
       }
     }
@@ -73,7 +74,6 @@ export async function POST(request) {
   }
 }
 
-// Función para enviar notificación resumen a administradores
 async function notificarAdministradoresYGimnasioResumen(gimnasioId, mensaje) {
   const adminsSnapshot = await db
     .collection("gimnasios")
@@ -89,22 +89,37 @@ async function notificarAdministradoresYGimnasioResumen(gimnasioId, mensaje) {
     .filter((token) => typeof token === "string" && token.length > 10);
 
   if (tokens.length === 0) return;
-
-  const payloadNotification = {
-    title: `Actualización de estados en gimnasio`,
-    body: mensaje,
-    sound: "default",
-  };
+  console.log("Tokens a notificar:", tokens);
 
   const payloadData = {
     gimnasioId,
     tipoNotificacion: "resumenEstados",
   };
 
-  const response = await admin.messaging().sendMulticast({
+  const payloadNotification = {
     tokens,
-    notification: payloadNotification,
+    notification: {
+      title: `Actualización de estado`,
+      body: mensaje,
+    },
+    android: {
+      notification: {
+        sound: "default",
+      },
+    },
     data: payloadData,
+  };
+
+  console.log("Messaging methods:", Object.keys(messaging));
+
+  const response = await messaging.sendEachForMulticast(payloadNotification);
+
+  response.responses.forEach((res, idx) => {
+    if (res.success) {
+      console.log(`✅ Notificación enviada a token ${idx}`);
+    } else {
+      console.error(`❌ Fallo en token ${idx}:`, res.error);
+    }
   });
 
   console.log(
